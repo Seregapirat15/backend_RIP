@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Астрономические инструменты</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="header">
+        <button class="explore-btn" onclick="window.location.href='/'">Explore ▼</button>
+    </div>
+
+    <div class="main-content">
+        <div class="search-calc-section">
+            <form method="GET" action="/" style="display: flex; gap: 10px; flex: 1;">
+                <input type="text" name="search" class="search-bar" placeholder="Поиск по названию..." value="{{.SearchQuery}}">
+                <button type="submit" class="search-btn">🔍</button>
+            </form>
+            {{if .CurrentCalculation}}
+            <button class="calculation-btn" id="calculation-btn" onclick="window.location.href='/calculation/{{.CurrentCalculation.ID}}'">
+                Расчёт <span class="calculation-count">{{.TotalCalculations}}</span>
+            </button>
+            {{else}}
+            <button class="calculation-btn" id="calculation-btn" disabled style="opacity: 0.5;">
+                Расчёт <span class="calculation-count">0</span>
+            </button>
+            {{end}}
+        </div>
+        
+        <div class="instruments-grid">
+        {{range .Instruments}}
+        <div class="instrument-card">
+            <div class="instrument-image">
+                {{if .ImageURL}}
+                    <img src="{{.ImageURL}}" alt="{{.Instrument.Name}}" style="width: 100%; height: 100%; object-fit: cover;">
+                {{else}}
+                    {{.Instrument.Name}}
+                {{end}}
+            </div>
+            <div class="instrument-content">
+                <div class="instrument-title">{{.Instrument.Name}}</div>
+                <div class="instrument-actions">
+                    <button type="button" class="action-btn" onclick="addInstrumentToOrder({{.Instrument.ID}})">
+                        Add <span class="arrow"></span>
+                    </button>
+                    <button class="action-btn" onclick="window.location.href='/tool/{{.Instrument.ID}}'">
+                        About <span class="arrow"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        {{end}}
+        </div>
+    </div>
+
+    <!-- API Integration Scripts -->
+    <script>
+        // API Base URL
+        const API_BASE = '/api';
+        
+        // Auth token management
+        function getAuthToken() {
+            return localStorage.getItem('auth_token');
+        }
+        
+        function setAuthToken(token) {
+            localStorage.setItem('auth_token', token);
+        }
+        
+        function removeAuthToken() {
+            localStorage.removeItem('auth_token');
+        }
+        
+        // API Helper functions
+        async function apiRequest(url, options = {}) {
+            const token = getAuthToken();
+            const defaultOptions = {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token && { 'Authorization': `Bearer ${token}` })
+                }
+            };
+            
+            const response = await fetch(API_BASE + url, { ...defaultOptions, ...options });
+            
+            if (!response.ok) {
+                const error = new Error(`API Error: ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
+            
+            return response.json();
+        }
+        
+        // Orders API - only cart functionality needed
+        async function getCartIcon() {
+            return await apiRequest('/orders/cart');
+        }
+        
+        async function addServiceToOrder(serviceId) {
+            return await apiRequest('/orders/services', {
+                method: 'POST',
+                body: JSON.stringify({
+                    service_id: serviceId,
+                    exoplanet_name: "Новая экзопланета",
+                    star_mass: 1.0,
+                    orbital_period: 365.0,
+                    velocity_amplitude: 10.0,
+                    inclination: 90.0,
+                    eccentricity: 0.0,
+                    comment: "Добавлено с главной страницы",
+                    other_info: ""
+                })
+            });
+        }
+        
+        async function addInstrumentToOrder(instrumentId) {
+            try {
+                console.log('Adding instrument to order:', instrumentId);
+                
+                // Add service to order
+                const result = await addServiceToOrder(instrumentId);
+                console.log('Add service result:', result);
+                
+                // Update cart display
+                await updateCartDisplay();
+                
+                // Show success message
+                showMessage('Инструмент добавлен в заявку!', 'success');
+                
+            } catch (error) {
+                console.error('Error adding instrument to order:', error);
+                console.error('Error status:', error.status);
+                console.error('Error message:', error.message);
+                
+                // Handle different types of errors
+                let errorMessage = 'Ошибка при добавлении инструмента';
+                
+                if (error.status === 401) {
+                    errorMessage = 'Требуется авторизация. Пожалуйста, войдите в систему.';
+                } else if (error.status === 409) {
+                    errorMessage = 'Этот инструмент уже добавлен в заявку';
+                } else if (error.status === 400) {
+                    errorMessage = 'Некорректные данные для добавления';
+                } else if (error.status === 500) {
+                    errorMessage = 'Серверная ошибка. Попробуйте позже';
+                } else if (error.status >= 400) {
+                    errorMessage = `Ошибка сервера (${error.status}). Проверьте подключение к интернету.`;
+                } else if (error.message && error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Ошибка соединения с сервером. Проверьте подключение к интернету.';
+                }
+                
+                showMessage(errorMessage, 'error');
+            }
+        }
+        
+        async function updateCartDisplay() {
+            try {
+                console.log('Updating cart display...');
+                const cart = await getCartIcon();
+                console.log('Cart data:', cart);
+                
+                const cartCount = document.querySelector('.calculation-count');
+                const calculationBtn = document.querySelector('#calculation-btn') || document.querySelector('.calculation-btn');
+                console.log('Found cart count element:', cartCount);
+                console.log('Found calculation button:', calculationBtn);
+                
+                if (cartCount && calculationBtn) {
+                    const newCount = cart.services_count || 0;
+                    const oldCount = parseInt(cartCount.textContent) || 0;
+                    console.log('Updating cart count from', oldCount, 'to', newCount);
+                    
+                    // Add visual feedback for count change
+                    if (newCount > oldCount) {
+                        cartCount.style.transform = 'scale(1.2)';
+                        cartCount.style.color = '#28a745';
+                        setTimeout(() => {
+                            cartCount.style.transform = 'scale(1)';
+                            cartCount.style.color = '';
+                        }, 300);
+                    }
+                    
+                    cartCount.textContent = newCount;
+                    
+                    // Update button state based on cart content
+                    if (newCount > 0) {
+                        // Enable button and make it clickable
+                        calculationBtn.disabled = false;
+                        calculationBtn.style.opacity = '1';
+                        calculationBtn.style.cursor = 'pointer';
+                        
+                        // Update onclick handler if cart has ID
+                        if (cart.calculation_id && cart.calculation_id > 0) {
+                            calculationBtn.onclick = () => {
+                                window.location.href = `/calculation/${cart.calculation_id}`;
+                            };
+                        } else if (cart.order_id && cart.order_id > 0) {
+                            // Fallback to order_id if calculation_id is not available
+                            calculationBtn.onclick = () => {
+                                window.location.href = `/calculation/${cart.order_id}`;
+                            };
+                        } else {
+                            // Fallback if no ID available
+                            calculationBtn.onclick = () => {
+                                window.location.href = '/calculation';
+                            };
+                        }
+                    } else {
+                        // Disable button when cart is empty
+                        calculationBtn.disabled = true;
+                        calculationBtn.style.opacity = '0.5';
+                        calculationBtn.style.cursor = 'not-allowed';
+                        calculationBtn.onclick = null;
+                    }
+                } else {
+                    console.log('Cart count element or calculation button not found');
+                }
+            } catch (error) {
+                console.error('Error updating cart display:', error);
+            }
+        }
+        
+        function showMessage(text, type) {
+            const message = document.createElement('div');
+            message.textContent = text;
+            message.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 10px 20px;
+                border-radius: 5px;
+                color: white;
+                z-index: 1000;
+                background: ${type === 'success' ? '#28a745' : '#dc3545'};
+            `;
+            document.body.appendChild(message);
+            
+            setTimeout(() => message.remove(), 3000);
+        }
+        
+        // Initialize API functionality on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Page loaded, initializing...');
+            
+            // Update cart display on load
+            updateCartDisplay();
+            
+            // Add click event listener for debugging
+            const calculationBtn = document.querySelector('#calculation-btn') || document.querySelector('.calculation-btn');
+            if (calculationBtn) {
+                console.log('Calculation button found:', calculationBtn);
+                console.log('Button disabled:', calculationBtn.disabled);
+                console.log('Button onclick:', calculationBtn.onclick);
+            }
+        });
+    </script>
+</body>
+</html>
