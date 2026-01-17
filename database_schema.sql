@@ -39,6 +39,7 @@ CREATE TABLE instruments (
     stability VARCHAR(200),
     instrument_type VARCHAR(200),
     image_url VARCHAR(255), -- Nullable URL к изображению
+    price DECIMAL(10,2) DEFAULT 0.00, -- Цена услуги
     is_deleted BOOLEAN DEFAULT FALSE, -- статус удален/действует
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

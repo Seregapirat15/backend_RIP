@@ -22,37 +22,63 @@ func GetServicesWithFilter(filter models.ServiceFilter) ([]models.Service, error
 	                 image_url, is_deleted, created_at
 	          FROM instruments 
 	          WHERE is_deleted = false`
-	
+
 	args := []interface{}{}
 	argCount := 0
-	
+
 	if filter.Type != "" {
 		argCount++
 		query += fmt.Sprintf(" AND type = $%d", argCount)
 		args = append(args, filter.Type)
 	}
-	
+
 	if filter.Status != "" {
 		argCount++
 		query += fmt.Sprintf(" AND status = $%d", argCount)
 		args = append(args, filter.Status)
 	}
-	
+
 	if filter.Search != "" {
 		argCount++
 		query += fmt.Sprintf(" AND (name ILIKE $%d OR full_name ILIKE $%d)", argCount, argCount)
 		searchTerm := "%" + filter.Search + "%"
 		args = append(args, searchTerm, searchTerm)
 	}
-	
+
+	if filter.MinAccuracy != nil {
+		argCount++
+		query += fmt.Sprintf(" AND accuracy >= $%d", argCount)
+		args = append(args, *filter.MinAccuracy)
+	}
+
+	if filter.MaxAccuracy != nil {
+		argCount++
+		query += fmt.Sprintf(" AND accuracy <= $%d", argCount)
+		args = append(args, *filter.MaxAccuracy)
+	}
+
+	if filter.DateFrom != nil {
+		argCount++
+		query += fmt.Sprintf(" AND created_at >= $%d", argCount)
+		args = append(args, *filter.DateFrom)
+	}
+
+	if filter.DateTo != nil {
+		argCount++
+		query += fmt.Sprintf(" AND created_at <= $%d", argCount)
+		// Add 1 day to include the end date fully if it's just a date
+		// But assuming string is YYYY-MM-DD, we rely on postgres casting
+		args = append(args, *filter.DateTo)
+	}
+
 	query += " ORDER BY created_at DESC"
-	
+
 	rows, err := PostgreSQLConnection.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	var services []models.Service
 	for rows.Next() {
 		var service models.Service
@@ -68,7 +94,7 @@ func GetServicesWithFilter(filter models.ServiceFilter) ([]models.Service, error
 		}
 		services = append(services, service)
 	}
-	
+
 	return services, nil
 }
 
@@ -81,7 +107,7 @@ func GetServiceByID(id int) (*models.Service, error) {
 	                 image_url, is_deleted, created_at
 	          FROM instruments 
 	          WHERE id = $1 AND is_deleted = false`
-	
+
 	var service models.Service
 	err := PostgreSQLConnection.QueryRow(query, id).Scan(
 		&service.ID, &service.Name, &service.FullName, &service.Type,
@@ -91,11 +117,11 @@ func GetServiceByID(id int) (*models.Service, error) {
 		&service.Status, &service.LaunchDate, &service.MeasurementRange,
 		&service.Resolution, &service.Calibration, &service.Stability,
 		&service.InstrumentType, &service.ImageURL, &service.IsDeleted, &service.CreatedAt)
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &service, nil
 }
 
@@ -108,7 +134,7 @@ func CreateService(service models.Service) (int, error) {
 	                                 image_url, is_deleted, created_at)
 	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 	          RETURNING id`
-	
+
 	var id int
 	err := PostgreSQLConnection.QueryRow(query,
 		service.Name, service.FullName, service.Type, service.Description,
@@ -118,7 +144,7 @@ func CreateService(service models.Service) (int, error) {
 		service.MeasurementRange, service.Resolution, service.Calibration,
 		service.Stability, service.InstrumentType, service.ImageURL,
 		service.IsDeleted, service.CreatedAt).Scan(&id)
-	
+
 	return id, err
 }
 
@@ -131,7 +157,7 @@ func UpdateService(service models.Service) error {
 	          launch_date = $15, measurement_range = $16, resolution = $17, calibration = $18, 
 	          stability = $19, instrument_type = $20, image_url = $21
 	          WHERE id = $1`
-	
+
 	_, err := PostgreSQLConnection.Exec(query,
 		service.ID, service.Name, service.FullName, service.Type, service.Description,
 		service.Accuracy, service.AccuracyUnit, service.VelocityPrecision,
@@ -139,7 +165,7 @@ func UpdateService(service models.Service) error {
 		service.SpectralResolution, service.Location, service.Status, service.LaunchDate,
 		service.MeasurementRange, service.Resolution, service.Calibration,
 		service.Stability, service.InstrumentType, service.ImageURL)
-	
+
 	return err
 }
 
@@ -150,7 +176,7 @@ func DeleteService(id int) error {
 	if err == nil && service.ImageURL != nil {
 		DeleteServiceImage(*service.ImageURL)
 	}
-	
+
 	// Логическое удаление
 	query := `UPDATE instruments SET is_deleted = true WHERE id = $1`
 	_, err = PostgreSQLConnection.Exec(query, id)
@@ -164,20 +190,20 @@ func UploadServiceImage(serviceID int, fileName string, file multipart.File, han
 	if err == nil && service.ImageURL != nil {
 		DeleteServiceImage(*service.ImageURL)
 	}
-	
+
 	// Загружаем новое изображение
 	imageURL, err := UploadImageToMinIO(fileName, file)
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Обновляем URL в базе
 	query := `UPDATE instruments SET image_url = $1 WHERE id = $2`
 	_, err = PostgreSQLConnection.Exec(query, imageURL, serviceID)
 	if err != nil {
 		return "", err
 	}
-	
+
 	return imageURL, nil
 }
 
@@ -190,20 +216,20 @@ func GetDraftOrder(creatorID int) (*models.Order, error) {
 	          FROM calculations 
 	          WHERE creator_id = $1 AND status = 'черновик'
 	          ORDER BY created_at DESC LIMIT 1`
-	
+
 	var order models.Order
 	err := PostgreSQLConnection.QueryRow(query, creatorID).Scan(
 		&order.ID, &order.Status, &order.CreatedAt, &order.CreatorID,
 		&order.FormationDate, &order.CompletionDate, &order.ModeratorID,
 		&order.Result, &order.TotalMass, &order.Notes)
-	
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &order, nil
 }
 
@@ -213,18 +239,18 @@ func GetOrCreateDraftOrder(creatorID int) (*models.Order, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if order == nil {
 		// Создаем новую заявку-черновик
 		query := `INSERT INTO calculations (status, created_at, creator_id)
 		          VALUES ('черновик', $1, $2) RETURNING id`
-		
+
 		var id int
 		err = PostgreSQLConnection.QueryRow(query, time.Now(), creatorID).Scan(&id)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		order = &models.Order{
 			ID:        id,
 			Status:    "черновик",
@@ -232,7 +258,7 @@ func GetOrCreateDraftOrder(creatorID int) (*models.Order, error) {
 			CreatorID: creatorID,
 		}
 	}
-	
+
 	return order, nil
 }
 
@@ -253,58 +279,58 @@ func GetOrdersWithFilter(filter models.OrderFilter) ([]models.Order, error) {
 	          LEFT JOIN users u ON c.creator_id = u.id
 	          LEFT JOIN users m ON c.moderator_id = m.id
 	          WHERE c.status != 'удалён' AND c.status != 'черновик'`
-	
+
 	args := []interface{}{}
 	argCount := 0
-	
+
 	if filter.Status != "" {
 		argCount++
 		query += fmt.Sprintf(" AND c.status = $%d", argCount)
 		args = append(args, filter.Status)
 	}
-	
+
 	if filter.FormationFrom != nil {
 		argCount++
 		query += fmt.Sprintf(" AND c.formation_date >= $%d", argCount)
 		args = append(args, *filter.FormationFrom)
 	}
-	
+
 	if filter.FormationTo != nil {
 		argCount++
 		query += fmt.Sprintf(" AND c.formation_date <= $%d", argCount)
 		args = append(args, *filter.FormationTo)
 	}
-	
+
 	query += " ORDER BY c.created_at DESC"
-	
+
 	rows, err := PostgreSQLConnection.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	var orders []models.Order
 	for rows.Next() {
 		var order models.Order
 		var creatorLogin, moderatorLogin sql.NullString
-		
+
 		err := rows.Scan(&order.ID, &order.Status, &order.CreatedAt, &order.CreatorID,
 			&creatorLogin, &order.FormationDate, &order.CompletionDate, &order.ModeratorID,
 			&moderatorLogin, &order.Result, &order.TotalMass, &order.Notes)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		if creatorLogin.Valid {
 			order.CreatorLogin = creatorLogin.String
 		}
 		if moderatorLogin.Valid {
 			order.ModeratorLogin = &moderatorLogin.String
 		}
-		
+
 		orders = append(orders, order)
 	}
-	
+
 	return orders, nil
 }
 
@@ -318,26 +344,26 @@ func GetOrderWithServices(orderID int) (*models.Order, error) {
 	          LEFT JOIN users u ON c.creator_id = u.id
 	          LEFT JOIN users m ON c.moderator_id = m.id
 	          WHERE c.id = $1`
-	
+
 	var order models.Order
 	var creatorLogin, moderatorLogin sql.NullString
-	
+
 	err := PostgreSQLConnection.QueryRow(query, orderID).Scan(
 		&order.ID, &order.Status, &order.CreatedAt, &order.CreatorID,
 		&creatorLogin, &order.FormationDate, &order.CompletionDate, &order.ModeratorID,
 		&moderatorLogin, &order.Result, &order.TotalMass, &order.Notes)
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if creatorLogin.Valid {
 		order.CreatorLogin = creatorLogin.String
 	}
 	if moderatorLogin.Valid {
 		order.ModeratorLogin = &moderatorLogin.String
 	}
-	
+
 	// Получаем услуги заявки
 	servicesQuery := `SELECT ci.calculation_id, ci.instrument_id, ci.exoplanet_name, ci.star_mass,
 	                         ci.orbital_period, ci.velocity_amplitude, ci.inclination, ci.comment,
@@ -346,19 +372,19 @@ func GetOrderWithServices(orderID int) (*models.Order, error) {
 	                  FROM calculation_instruments ci
 	                  JOIN instruments i ON ci.instrument_id = i.id
 	                  WHERE ci.calculation_id = $1`
-	
+
 	rows, err := PostgreSQLConnection.Query(servicesQuery, orderID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var orderService models.OrderService
 		var service models.Service
 		var comment, otherInfo sql.NullString
 		var calculatedMass sql.NullFloat64
-		
+
 		err := rows.Scan(&orderService.OrderID, &orderService.ServiceID, &orderService.ExoplanetName,
 			&orderService.StarMass, &orderService.OrbitalPeriod, &orderService.VelocityAmplitude,
 			&orderService.Inclination, &comment, &otherInfo, &calculatedMass,
@@ -366,7 +392,7 @@ func GetOrderWithServices(orderID int) (*models.Order, error) {
 		if err != nil {
 			return nil, err
 		}
-		
+
 		if comment.Valid {
 			orderService.Comment = &comment.String
 		}
@@ -376,11 +402,11 @@ func GetOrderWithServices(orderID int) (*models.Order, error) {
 		if calculatedMass.Valid {
 			orderService.CalculatedMass = &calculatedMass.Float64
 		}
-		
+
 		orderService.Service = &service
 		order.Services = append(order.Services, orderService)
 	}
-	
+
 	return &order, nil
 }
 
@@ -389,17 +415,17 @@ func GetOrderByID(orderID int) (*models.Order, error) {
 	query := `SELECT id, status, created_at, creator_id, formation_date, completion_date, 
 	                 moderator_id, result, total_mass, notes
 	          FROM calculations WHERE id = $1`
-	
+
 	var order models.Order
 	err := PostgreSQLConnection.QueryRow(query, orderID).Scan(
 		&order.ID, &order.Status, &order.CreatedAt, &order.CreatorID,
 		&order.FormationDate, &order.CompletionDate, &order.ModeratorID,
 		&order.Result, &order.TotalMass, &order.Notes)
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &order, nil
 }
 
@@ -408,7 +434,7 @@ func UpdateOrder(order models.Order) error {
 	query := `UPDATE calculations SET 
 	          result = $2, total_mass = $3, notes = $4
 	          WHERE id = $1`
-	
+
 	_, err := PostgreSQLConnection.Exec(query, order.ID, order.Result, order.TotalMass, order.Notes)
 	return err
 }
@@ -422,35 +448,35 @@ func ValidateOrderForForming(orderID int) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if count == 0 {
 		return fmt.Errorf("в заявке должны быть услуги")
 	}
-	
+
 	// Проверяем обязательные поля услуг
 	query = `SELECT exoplanet_name, star_mass, orbital_period, velocity_amplitude, inclination
 	         FROM calculation_instruments WHERE calculation_id = $1`
-	
+
 	rows, err := PostgreSQLConnection.Query(query, orderID)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var exoplanetName string
 		var starMass, orbitalPeriod, velocityAmplitude, inclination float64
-		
+
 		err := rows.Scan(&exoplanetName, &starMass, &orbitalPeriod, &velocityAmplitude, &inclination)
 		if err != nil {
 			return err
 		}
-		
+
 		if exoplanetName == "" || starMass <= 0 || orbitalPeriod <= 0 || velocityAmplitude <= 0 || inclination <= 0 {
 			return fmt.Errorf("все поля услуг должны быть заполнены")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -469,7 +495,7 @@ func CompleteOrder(orderID int, action, result string) error {
 	} else {
 		status = "отклонён"
 	}
-	
+
 	query := `UPDATE calculations SET status = $1, completion_date = $2, moderator_id = $3, result = $4 WHERE id = $5`
 	_, err := PostgreSQLConnection.Exec(query, status, time.Now(), 1, result, orderID) // moderator_id = 1
 	return err
@@ -494,22 +520,22 @@ func AddServiceToOrder(orderService models.OrderService) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if count > 0 {
 		return errors.New("услуга уже добавлена в заявку")
 	}
-	
+
 	// Если услуга не добавлена, добавляем её
 	query := `INSERT INTO calculation_instruments 
 	          (calculation_id, instrument_id, exoplanet_name, star_mass, orbital_period, 
 	           velocity_amplitude, inclination, comment, other_info)
 	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
-	
+
 	_, err = PostgreSQLConnection.Exec(query,
 		orderService.OrderID, orderService.ServiceID, orderService.ExoplanetName,
 		orderService.StarMass, orderService.OrbitalPeriod, orderService.VelocityAmplitude,
 		orderService.Inclination, orderService.Comment, orderService.OtherInfo)
-	
+
 	return err
 }
 
@@ -526,12 +552,12 @@ func UpdateOrderService(orderService models.OrderService) error {
 	          exoplanet_name = $3, star_mass = $4, orbital_period = $5, velocity_amplitude = $6,
 	          inclination = $7, comment = $8, other_info = $9
 	          WHERE calculation_id = $1 AND instrument_id = $2`
-	
+
 	_, err := PostgreSQLConnection.Exec(query,
 		orderService.OrderID, orderService.ServiceID, orderService.ExoplanetName,
 		orderService.StarMass, orderService.OrbitalPeriod, orderService.VelocityAmplitude,
 		orderService.Inclination, orderService.Comment, orderService.OtherInfo)
-	
+
 	return err
 }
 
@@ -541,41 +567,41 @@ func UpdateOrderService(orderService models.OrderService) error {
 func CreateUser(user models.User) (int, error) {
 	query := `INSERT INTO users (login, email, password_hash, first_name, last_name, role, is_active, created_at) 
 	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`
-	
+
 	var id int
 	err := PostgreSQLConnection.QueryRow(query,
 		user.Login, user.Email, user.PasswordHash, user.FirstName, user.LastName, user.Role, user.IsActive, user.CreatedAt).Scan(&id)
-	
+
 	return id, err
 }
 
 // GetUserByID получает пользователя по ID
 func GetUserByID(id int) (*models.User, error) {
 	query := `SELECT id, login, email, first_name, last_name, role, is_active, created_at FROM users WHERE id = $1`
-	
+
 	var user models.User
 	err := PostgreSQLConnection.QueryRow(query, id).Scan(
 		&user.ID, &user.Login, &user.Email, &user.FirstName, &user.LastName, &user.Role, &user.IsActive, &user.CreatedAt)
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &user, nil
 }
 
 // GetUserByLogin получает пользователя по логину
 func GetUserByLogin(login string) (*models.User, error) {
 	query := `SELECT id, login, email, password_hash, first_name, last_name, role, is_active, created_at FROM users WHERE login = $1`
-	
+
 	var user models.User
 	err := PostgreSQLConnection.QueryRow(query, login).Scan(
 		&user.ID, &user.Login, &user.Email, &user.PasswordHash, &user.FirstName, &user.LastName, &user.Role, &user.IsActive, &user.CreatedAt)
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &user, nil
 }
 
