@@ -14,9 +14,6 @@ import (
 	"lab4/internal/models"
 )
 
-// Константа для зафиксированного пользователя-создателя
-const FIXED_CREATOR_ID = 1
-
 // GetServicesHandler - GET /api/services - список услуг с фильтрацией
 func GetServicesHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")

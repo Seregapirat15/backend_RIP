@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"lab4/internal/database"
+	"lab4/internal/middleware"
 	"lab4/internal/models"
 )
 
@@ -34,14 +35,19 @@ func DeleteOrderServiceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Проверяем права доступа
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		http.Error(w, "Пользователь не авторизован", http.StatusUnauthorized)
+		return
+	}
+	
 	order, err := database.GetOrderByID(orderID)
 	if err != nil {
 		http.Error(w, "Заявка не найдена", http.StatusNotFound)
 		return
 	}
 	
-	if order.CreatorID != FIXED_CREATOR_ID {
+	if order.CreatorID != userID {
 		http.Error(w, "Нет прав на изменение заявки", http.StatusForbidden)
 		return
 	}
@@ -86,14 +92,19 @@ func UpdateOrderServiceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Проверяем права доступа
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		http.Error(w, "Пользователь не авторизован", http.StatusUnauthorized)
+		return
+	}
+	
 	order, err := database.GetOrderByID(orderID)
 	if err != nil {
 		http.Error(w, "Заявка не найдена", http.StatusNotFound)
 		return
 	}
 	
-	if order.CreatorID != FIXED_CREATOR_ID {
+	if order.CreatorID != userID {
 		http.Error(w, "Нет прав на изменение заявки", http.StatusForbidden)
 		return
 	}

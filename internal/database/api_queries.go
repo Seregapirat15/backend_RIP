@@ -275,7 +275,9 @@ func GetOrderServiceCount(orderID int) (int, error) {
 func GetOrdersWithFilter(filter models.OrderFilter) ([]models.Order, error) {
 	query := `SELECT c.id, c.status, c.created_at, c.creator_id, u.login as creator_login,
 	                 c.formation_date, c.completion_date, c.moderator_id, m.login as moderator_login,
-	                 c.result, c.total_mass, c.notes
+	                 c.result, c.total_mass, c.notes,
+	                 COALESCE((SELECT COUNT(*) FROM calculation_instruments ci
+	                           WHERE ci.calculation_id = c.id AND ci.calculated_mass IS NOT NULL), 0) as calculated_count
 	          FROM calculations c
 	          LEFT JOIN users u ON c.creator_id = u.id
 	          LEFT JOIN users m ON c.moderator_id = m.id
@@ -283,6 +285,12 @@ func GetOrdersWithFilter(filter models.OrderFilter) ([]models.Order, error) {
 
 	args := []interface{}{}
 	argCount := 0
+
+	if filter.CreatorID != nil {
+		argCount++
+		query += fmt.Sprintf(" AND c.creator_id = $%d", argCount)
+		args = append(args, *filter.CreatorID)
+	}
 
 	if filter.Status != "" {
 		argCount++
@@ -317,7 +325,7 @@ func GetOrdersWithFilter(filter models.OrderFilter) ([]models.Order, error) {
 
 		err := rows.Scan(&order.ID, &order.Status, &order.CreatedAt, &order.CreatorID,
 			&creatorLogin, &order.FormationDate, &order.CompletionDate, &order.ModeratorID,
-			&moderatorLogin, &order.Result, &order.TotalMass, &order.Notes)
+			&moderatorLogin, &order.Result, &order.TotalMass, &order.Notes, &order.CalculatedCount)
 		if err != nil {
 			return nil, err
 		}
@@ -481,15 +489,48 @@ func ValidateOrderForForming(orderID int) error {
 	return nil
 }
 
-// FormOrder формирует заявку
+// FormOrder формирует заявку и вычисляет массу по параметрам м-м
 func FormOrder(orderID int) error {
-	query := `UPDATE calculations SET status = 'сформирован', formation_date = $1 WHERE id = $2`
-	_, err := PostgreSQLConnection.Exec(query, time.Now(), orderID)
+	// Вычисляем массу для каждой м-м записи
+	rows, err := PostgreSQLConnection.Query(
+		`SELECT calculation_id, instrument_id, star_mass, orbital_period, velocity_amplitude, inclination
+		 FROM calculation_instruments WHERE calculation_id = $1`, orderID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var totalMass float64
+	for rows.Next() {
+		var calcID, instID int
+		var starMass, orbitalPeriod, velAmp, inclination float64
+		if err := rows.Scan(&calcID, &instID, &starMass, &orbitalPeriod, &velAmp, &inclination); err != nil {
+			return err
+		}
+		mass := calculateExoplanetMass(starMass, velAmp, orbitalPeriod, inclination)
+		totalMass += mass
+
+		_, err := PostgreSQLConnection.Exec(
+			`UPDATE calculation_instruments SET calculated_mass = $1
+			 WHERE calculation_id = $2 AND instrument_id = $3`,
+			mass, orderID, instID)
+		if err != nil {
+			return err
+		}
+	}
+
+	var totalMassPtr *float64
+	if totalMass > 0 {
+		totalMassPtr = &totalMass
+	}
+
+	query := `UPDATE calculations SET status = 'сформирован', formation_date = $1, total_mass = $2 WHERE id = $3`
+	_, err = PostgreSQLConnection.Exec(query, time.Now(), totalMassPtr, orderID)
 	return err
 }
 
 // CompleteOrder завершает заявку
-func CompleteOrder(orderID int, action, result string) error {
+func CompleteOrder(orderID int, action, result string, moderatorID int) error {
 	var status string
 	if action == "complete" {
 		status = "завершён"
@@ -497,8 +538,42 @@ func CompleteOrder(orderID int, action, result string) error {
 		status = "отклонён"
 	}
 
-	query := `UPDATE calculations SET status = $1, completion_date = $2, moderator_id = $3, result = $4 WHERE id = $5`
-	_, err := PostgreSQLConnection.Exec(query, status, time.Now(), 1, result, orderID) // moderator_id = 1
+	var totalMass *float64
+	if action == "complete" {
+		// Получаем все м-м записи и вычисляем массу для каждой
+		rows, err := PostgreSQLConnection.Query(
+			`SELECT calculation_id, instrument_id, star_mass, orbital_period, velocity_amplitude, inclination
+			 FROM calculation_instruments WHERE calculation_id = $1`, orderID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		var sum float64
+		for rows.Next() {
+			var calcID, instID int
+			var starMass, orbitalPeriod, velAmp, inclination float64
+			if err := rows.Scan(&calcID, &instID, &starMass, &orbitalPeriod, &velAmp, &inclination); err != nil {
+				return err
+			}
+			mass := calculateExoplanetMass(starMass, velAmp, orbitalPeriod, inclination)
+			sum += mass
+
+			_, err := PostgreSQLConnection.Exec(
+				`UPDATE calculation_instruments SET calculated_mass = $1
+				 WHERE calculation_id = $2 AND instrument_id = $3`,
+				mass, orderID, instID)
+			if err != nil {
+				return err
+			}
+		}
+		if sum > 0 {
+			totalMass = &sum
+		}
+	}
+
+	query := `UPDATE calculations SET status = $1, completion_date = $2, moderator_id = $3, result = $4, total_mass = $5 WHERE id = $6`
+	_, err := PostgreSQLConnection.Exec(query, status, time.Now(), moderatorID, result, totalMass, orderID)
 	return err
 }
 

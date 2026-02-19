@@ -40,10 +40,11 @@ type Order struct {
 	CompletionDate *time.Time     `json:"completion_date" db:"completion_date"`
 	ModeratorID    *int           `json:"moderator_id" db:"moderator_id"`
 	ModeratorLogin *string        `json:"moderator_login" db:"moderator_login"`
-	Result         *string        `json:"result" db:"result"`
-	TotalMass      *float64       `json:"total_mass" db:"total_mass"`
-	Notes          *string        `json:"notes" db:"notes"`
-	Services       []OrderService `json:"services,omitempty"` // Услуги в заявке
+	Result          *string        `json:"result" db:"result"`
+	TotalMass       *float64       `json:"total_mass" db:"total_mass"`
+	Notes           *string        `json:"notes" db:"notes"`
+	CalculatedCount int            `json:"calculated_count" db:"calculated_count"`
+	Services        []OrderService `json:"services,omitempty"`
 }
 
 // OrderService представляет связь заявки с услугой (м-м)

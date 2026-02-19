@@ -176,8 +176,19 @@ func UpdateOrderHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Проверяем права доступа
-	if order.CreatorID != FIXED_CREATOR_ID {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		http.Error(w, "Пользователь не авторизован", http.StatusUnauthorized)
+		return
+	}
+	
+	existingOrder, err := database.GetOrderByID(orderID)
+	if err != nil {
+		http.Error(w, "Заявка не найдена", http.StatusNotFound)
+		return
+	}
+	
+	if existingOrder.CreatorID != userID {
 		http.Error(w, "Нет прав на изменение заявки", http.StatusForbidden)
 		return
 	}
@@ -205,14 +216,19 @@ func FormOrderHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Проверяем, что заявка принадлежит пользователю
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		http.Error(w, "Пользователь не авторизован", http.StatusUnauthorized)
+		return
+	}
+	
 	order, err := database.GetOrderByID(orderID)
 	if err != nil {
 		http.Error(w, "Заявка не найдена", http.StatusNotFound)
 		return
 	}
 	
-	if order.CreatorID != FIXED_CREATOR_ID {
+	if order.CreatorID != userID {
 		http.Error(w, "Нет прав на формирование заявки", http.StatusForbidden)
 		return
 	}
@@ -277,8 +293,13 @@ func CompleteOrderHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Завершаем заявку
-	err = database.CompleteOrder(orderID, request.Action, request.Result)
+	moderatorID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		http.Error(w, "Пользователь не авторизован", http.StatusUnauthorized)
+		return
+	}
+	
+	err = database.CompleteOrder(orderID, request.Action, request.Result, moderatorID)
 	if err != nil {
 		log.Printf("Ошибка завершения заявки: %v", err)
 		http.Error(w, "Ошибка завершения заявки", http.StatusInternalServerError)
@@ -303,14 +324,19 @@ func DeleteOrderHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Проверяем права доступа
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		http.Error(w, "Пользователь не авторизован", http.StatusUnauthorized)
+		return
+	}
+	
 	order, err := database.GetOrderByID(orderID)
 	if err != nil {
 		http.Error(w, "Заявка не найдена", http.StatusNotFound)
 		return
 	}
 	
-	if order.CreatorID != FIXED_CREATOR_ID {
+	if order.CreatorID != userID {
 		http.Error(w, "Нет прав на удаление заявки", http.StatusForbidden)
 		return
 	}
