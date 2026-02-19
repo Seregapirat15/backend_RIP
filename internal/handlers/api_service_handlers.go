@@ -44,6 +44,11 @@ func GetServicesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Подставляем presigned URL для изображений из MinIO
+	for i := range services {
+		fillServiceImageURL(&services[i])
+	}
+
 	json.NewEncoder(w).Encode(services)
 }
 
@@ -71,6 +76,7 @@ func GetServiceHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fillServiceImageURL(service)
 	json.NewEncoder(w).Encode(service)
 }
 
@@ -206,11 +212,10 @@ func AddServiceToOrderHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// UploadServiceImageHandler - POST /api/services/{id}/image - добавление изображения
+// UploadServiceImageHandler - POST /api/services/{id}/image - добавление изображения в MinIO
 func UploadServiceImageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Извлечение ID из URL
 	pathParts := strings.Split(r.URL.Path, "/")
 	serviceID, err := strconv.Atoi(pathParts[len(pathParts)-2])
 	if err != nil {
@@ -218,37 +223,51 @@ func UploadServiceImageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Парсинг multipart/form-data
-	err = r.ParseMultipartForm(10 << 20) // 10MB
-	if err != nil {
+	if err := r.ParseMultipartForm(10 << 20); err != nil { // 10MB
 		http.Error(w, "Ошибка парсинга формы", http.StatusBadRequest)
 		return
 	}
 
-	file, _, err := r.FormFile("image")
+	file, handler, err := r.FormFile("image")
 	if err != nil {
-		http.Error(w, "Файл не найден", http.StatusBadRequest)
+		http.Error(w, "Файл не найден (ожидается поле 'image')", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
-	// Генерация имени файла на латинице
 	fileName := fmt.Sprintf("service_%d_%d.jpg", serviceID, time.Now().Unix())
 
-	// Загрузка в MinIO (упрощенная версия)
-	imageURL := fmt.Sprintf("http://localhost:9000/service-images/%s", fileName)
-
-	// Обновляем URL в базе
-	err = database.UpdateServiceImageURL(serviceID, imageURL)
+	objectName, err := database.UploadServiceImage(serviceID, fileName, file, handler)
 	if err != nil {
-		log.Printf("Ошибка обновления URL изображения: %v", err)
-		http.Error(w, "Ошибка обновления URL изображения", http.StatusInternalServerError)
+		log.Printf("Ошибка загрузки изображения: %v", err)
+		http.Error(w, "Ошибка загрузки изображения: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Отдаём клиенту presigned URL для отображения
+	imageURL, _ := database.GetTelescopeImagePresignedURL(objectName)
+	if imageURL == "" {
+		imageURL = "http://localhost:9000/telescope-images/" + objectName
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{
 		"image_url": imageURL,
 	})
+}
+
+// fillServiceImageURL подставляет presigned URL для image_url из MinIO (если в БД хранится ключ объекта)
+func fillServiceImageURL(s *models.Service) {
+	if s == nil || s.ImageURL == nil || *s.ImageURL == "" {
+		return
+	}
+	key := *s.ImageURL
+	if strings.HasPrefix(key, "http") {
+		return // уже полный URL
+	}
+	url, err := database.GetTelescopeImagePresignedURL(key)
+	if err == nil && url != "" {
+		s.ImageURL = &url
+	}
 }
 
 // Вспомогательные функции для парсинга параметров

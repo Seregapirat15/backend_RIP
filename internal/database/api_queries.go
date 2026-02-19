@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"mime/multipart"
 	"time"
 
+	"github.com/minio/minio-go/v7"
 	"lab4/internal/models"
 )
 
@@ -183,28 +185,27 @@ func DeleteService(id int) error {
 	return err
 }
 
-// UploadServiceImage загружает изображение услуги в MinIO
+// Bucket для изображений инструментов (тот же, что в MinIO)
+const serviceImagesBucket = "telescope-images"
+
+// UploadServiceImage загружает изображение услуги в MinIO и сохраняет ключ в БД
 func UploadServiceImage(serviceID int, fileName string, file multipart.File, handler *multipart.FileHeader) (string, error) {
-	// Удаляем старое изображение если есть
 	service, err := GetServiceByID(serviceID)
 	if err == nil && service.ImageURL != nil {
 		DeleteServiceImage(*service.ImageURL)
 	}
 
-	// Загружаем новое изображение
-	imageURL, err := UploadImageToMinIO(fileName, file)
+	objectName, err := UploadImageToMinIO(fileName, file, handler.Size)
 	if err != nil {
 		return "", err
 	}
 
-	// Обновляем URL в базе
 	query := `UPDATE instruments SET image_url = $1 WHERE id = $2`
-	_, err = PostgreSQLConnection.Exec(query, imageURL, serviceID)
+	_, err = PostgreSQLConnection.Exec(query, objectName, serviceID)
 	if err != nil {
 		return "", err
 	}
-
-	return imageURL, nil
+	return objectName, nil
 }
 
 // === ЗАЯВКИ ===
@@ -614,11 +615,21 @@ func UpdateUser(user models.User) error {
 
 // === MINIO ===
 
-// UploadImageToMinIO загружает изображение в MinIO
-func UploadImageToMinIO(fileName string, file io.Reader) (string, error) {
-	// Здесь должна быть реализация загрузки в MinIO
-	// Возвращаем URL изображения
-	return "http://localhost:9000/service-images/" + fileName, nil
+// UploadImageToMinIO загружает изображение в MinIO и возвращает ключ объекта (имя файла)
+func UploadImageToMinIO(fileName string, file io.Reader, size int64) (string, error) {
+	if MinIOTelescopeImagesClient == nil {
+		return "", fmt.Errorf("MinIO клиент не инициализирован")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	_, err := MinIOTelescopeImagesClient.PutObject(ctx, serviceImagesBucket, fileName, file, size, minio.PutObjectOptions{
+		ContentType: "image/jpeg",
+	})
+	if err != nil {
+		return "", fmt.Errorf("ошибка загрузки в MinIO: %w", err)
+	}
+	return fileName, nil
 }
 
 // DeleteServiceImage удаляет изображение из MinIO

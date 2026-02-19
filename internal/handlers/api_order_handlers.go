@@ -148,7 +148,13 @@ func GetOrderHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Заявка не найдена", http.StatusNotFound)
 		return
 	}
-	
+
+	for i := range order.Services {
+		if order.Services[i].Service != nil {
+			fillServiceImageURL(order.Services[i].Service)
+		}
+	}
+
 	json.NewEncoder(w).Encode(order)
 }
 
