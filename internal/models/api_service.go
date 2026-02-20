@@ -44,6 +44,7 @@ type Order struct {
 	TotalMass       *float64       `json:"total_mass" db:"total_mass"`
 	Notes           *string        `json:"notes" db:"notes"`
 	CalculatedCount int            `json:"calculated_count" db:"calculated_count"`
+	MMTotal         int            `json:"mm_total" db:"mm_total"` // всего записей м-м
 	Services        []OrderService `json:"services,omitempty"`
 }
 

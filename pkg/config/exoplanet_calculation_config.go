@@ -2,6 +2,13 @@ package config
 
 import "os"
 
+func getEnv(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
+}
+
 // ExoplanetCalculationConfig содержит конфигурацию системы расчета экзопланет
 type ExoplanetCalculationConfig struct {
 	// PostgreSQL
@@ -20,6 +27,10 @@ type ExoplanetCalculationConfig struct {
 	
 	// Server
 	ServerPort string
+
+	// Lab 8: асинхронный сервис
+	AsyncServiceURL string
+	ServiceToken    string // 8 байт, для приёма результатов от async
 }
 
 // GetExoplanetCalculationConfig возвращает конфигурацию по умолчанию
@@ -42,6 +53,10 @@ func GetExoplanetCalculationConfig() *ExoplanetCalculationConfig {
 		
 		// Server
 		ServerPort: "8081",
+
+		// Lab 8: async service
+		AsyncServiceURL: getEnv("ASYNC_SERVICE_URL", "http://localhost:8001"),
+		ServiceToken:    getEnv("SERVICE_TOKEN", "Lab8Token"),
 	}
 	
 	if isDocker {

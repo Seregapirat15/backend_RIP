@@ -46,6 +46,8 @@ services:
       DOCKER_ENV: "true"
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      ASYNC_SERVICE_URL: "http://async_mass:8001"
+      SERVICE_TOKEN: "Lab8Token"
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,6 +74,21 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    networks:
+      - telescope-network
+
+  # Lab8: Асинхронный сервис расчёта массы (Python asyncio)
+  async_mass:
+    build: ../async_mass_service
+    container_name: exoplanet-async-mass
+    ports:
+      - "8001:8001"
+    environment:
+      MAIN_SERVICE_URL: "http://app:8081"
+      SERVICE_TOKEN: "Lab8Token"
+    depends_on:
+      app:
+        condition: service_started
     networks:
       - telescope-network
 

@@ -101,9 +101,14 @@ func GetOrdersHandler(w http.ResponseWriter, r *http.Request) {
 func GetAllOrdersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	
-	// Парсинг параметров фильтрации
+	// Парсинг параметров фильтрации (Lab8: даты, статус — бэк; creator_id — фронт)
 	filter := models.OrderFilter{
 		Status: r.URL.Query().Get("status"),
+	}
+	if creatorIDStr := r.URL.Query().Get("creator_id"); creatorIDStr != "" {
+		if cid, err := strconv.Atoi(creatorIDStr); err == nil {
+			filter.CreatorID = &cid
+		}
 	}
 	
 	// Парсинг дат
@@ -305,7 +310,14 @@ func CompleteOrderHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Ошибка завершения заявки", http.StatusInternalServerError)
 		return
 	}
-	
+
+	// Lab 8: при complete вызываем асинхронный сервис для расчёта массы в м-м
+	if request.Action == "complete" {
+		if err := callAsyncService(orderID); err != nil {
+			log.Printf("Не удалось запустить async расчёт: %v", err)
+		}
+	}
+
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "Заявка " + request.Action + "d",
 		"status":  request.Action + "d",

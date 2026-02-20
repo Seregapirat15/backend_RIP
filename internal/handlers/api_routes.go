@@ -16,6 +16,9 @@ func SetupAPIRoutes(r *mux.Router) {
 	api.HandleFunc("/services", GetServicesHandler).Methods("GET")                    // 1. GET список услуг с фильтрацией
 	api.HandleFunc("/services/{id}", GetServiceHandler).Methods("GET")               // 2. GET одна услуга
 	
+	// === ВНУТРЕННИЕ (Lab8: вызов от async-сервиса, проверка X-Service-Token) ===
+	api.HandleFunc("/internal/submit-mass-result", SubmitMassResultHandler).Methods("POST")
+
 	// === АВТОРИЗАЦИЯ (публичные) ===
 	api.HandleFunc("/auth/register", RegisterUserHandler).Methods("POST")             // Регистрация
 	api.HandleFunc("/auth/login", LoginUserHandler).Methods("POST")                   // Вход
@@ -58,6 +61,7 @@ func SetupAPIRoutes(r *mux.Router) {
 	
 	// Все заявки для модераторов
 	admin.HandleFunc("/admin/orders", GetAllOrdersHandler).Methods("GET")             // Все заявки для модератора
+	admin.HandleFunc("/admin/orders/{id}/trigger-calculation", TriggerAsyncCalculationHandler).Methods("POST") // Lab8: запуск async расчёта
 	
 	// Просмотр сессий (для отладки, доступно всем авторизованным)
 	protected.HandleFunc("/admin/sessions", GetSessionsHandler).Methods("GET")        // Просмотр всех сессий
@@ -77,7 +81,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Service-Token")
 		
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)

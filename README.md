@@ -1,12 +1,26 @@
 # Go Backend — Система расчёта массы экзопланет
 
-**Лабораторные 1–7** | Студент: Номоконов Владислав | Группа: ИУ5-53Б
+**Лабораторные 1–8** | Студент: Номоконов Владислав | Группа: ИУ5-53Б
 
 ## Запуск
 
 ```bash
 docker-compose up --build
 ```
+
+## Вход модератора
+
+**Логин:** `moderator`  
+**Пароль:** `password` (если не подходит, см. ниже)
+
+Если пароль не подходит (в БД мог быть другой хеш), выполните SQL:
+
+```bash
+# В Adminer (http://localhost:8080) или psql:
+# Выполните: scripts/fix_moderator_password.sql
+```
+
+Либо сгенерируйте свой хеш: `go run ./scripts/gen_password.go` → скопируйте хеш → `UPDATE users SET password_hash='...' WHERE login='moderator'`.
 
 ## Сервисы
 
@@ -16,11 +30,18 @@ docker-compose up --build
 | Swagger | http://localhost:8081/swagger/ |
 | Adminer | http://localhost:8080 |
 
+## Lab 8 — Межсервисное взаимодействие
+
+- **POST /api/internal/submit-mass-result** — приём результата от async-сервиса (X-Service-Token: Lab8Token)
+- **POST /api/admin/orders/{id}/trigger-calculation** — ручной запуск async-расчёта (модератор)
+- **FormOrder** — не рассчитывает массу; расчёт в async-сервисе
+- **GET заявок** — поля `calculated_count`, `mm_total`
+
 ## Что сделано
 
 - **Услуги (инструменты)** — GET список с фильтрацией, GET по id.
 - **Авторизация** — POST /auth/login, /auth/register, /auth/logout, GET/PUT /auth/me (JWT + сессии Redis).
-- **Заявки** — CRUD, формирование, добавление/удаление/изменение услуг в заявке, расчёт массы.
+- **Заявки** — CRUD, формирование, добавление/удаление/изменение услуг в заявке.
 - **PostgreSQL** — пользователи, услуги, заявки, м-м.
 - **CORS** — разрешено для GitHub Pages и localhost.
 
