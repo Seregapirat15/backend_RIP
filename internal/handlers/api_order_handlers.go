@@ -26,7 +26,7 @@ func GetCartIconHandler(w http.ResponseWriter, r *http.Request) {
 	
 	// Получаем заявку-черновик пользователя
 	order, err := database.GetDraftOrder(userID)
-	if err != nil {
+	if err != nil || order == nil {
 		// Если заявки нет, возвращаем пустую корзину
 		json.NewEncoder(w).Encode(models.CartIcon{
 			OrderID:       0,
